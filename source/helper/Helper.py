@@ -69,8 +69,11 @@ class Helper:
     def _get_metrics(self):
         metrics = []
         for metric in self.params.eval.metrics:
-            for threshold in self.params.eval.thresholds:
-                metrics.append(f"{metric}@{threshold}")
+            if metric == "mrr":
+                metrics.append("mrr")
+            else:
+                for threshold in self.params.eval.thresholds:
+                    metrics.append(f"{metric}@{threshold}")
         return metrics
 
     def _load_labels_cls(self):

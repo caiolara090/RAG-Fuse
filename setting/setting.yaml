@@ -6,7 +6,7 @@ defaults:
 tasks: [ "label_desc" ]
 
 trainer:
-  max_epochs: 5
+  max_epochs: 20
   accelerator: gpu
   devices: [ 0 ]
   precision: 16-mixed
@@ -63,8 +63,9 @@ llm:
     max_gen_len: 256
     temperature: 0.5
     top_p: 0.5
-    model: meta.llama3-1-8b-instruct-v1:0 # arn:aws:bedrock:us-west-2:179395270822:inference-profile/us.meta.llama4-scout-17b-instruct-v1:0 #meta.llama4-scout-17b-instruct-v1:0 #meta.llama3-1-8b-instruct-v1:0
-
+    # model: meta.llama3-1-8b-instruct-v1:0 # arn:aws:bedrock:us-west-2:179395270822:inference-profile/us.meta.llama4-scout-17b-instruct-v1:0 #meta.llama4-scout-17b-instruct-v1:0 #meta.llama3-1-8b-instruct-v1:0
+    # model: mistralai/Mistral-7B-Instruct-v0.1
+    model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
   label_desc:
     batch_size: 32
     max_gen_len: 256
@@ -100,8 +101,8 @@ rpr:
   write_interval: batch
 
 eval:
-  metrics: [ "ndcg", "precision" ]
-  thresholds: [ 1,5,10 ]
+  metrics: ["ndcg", "precision", "recall", "mrr"]
+  thresholds: [1, 5]
   num_nearest_neighbors: 100
   label_cls: [ "tail", "head" ]
   index:

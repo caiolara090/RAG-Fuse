@@ -188,7 +188,7 @@ class PromptOptimizerHelper(Helper):
                 })
 
             pred_descriptions, true_descriptions = [], []
-            async with self.session.client('bedrock-runtime') as bedrock_client:
+            async with self.session.client('bedrock-runtime', region_name='us-east-1') as bedrock_client:
                 with tqdm(total=prompts_requests.qsize(), desc=f"Requesting") as pbar:
                     while not prompts_requests.empty():  # Process the queue in batches until its empty
                         batched_requests = await self._get_batched_requests(prompts_requests)

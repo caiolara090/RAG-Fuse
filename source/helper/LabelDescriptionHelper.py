@@ -3,9 +3,8 @@ import json
 import logging
 import pickle
 import random
-import time
 
-import aioboto3
+from vllm import LLM, SamplingParams
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
@@ -14,34 +13,23 @@ from source.helper.Helper import Helper
 logging.basicConfig(level=logging.INFO)
 
 
-async def llm_predict(client, request):
+async def llm_predict(llm, sampling_params, request):
     try:
-        response = await asyncio.wait_for(
-            client.invoke_model(
-                body=json.dumps(request["body"]),
-                modelId=request["modelId"],
-                accept="application/json",
-                contentType="application/json"
-            ),
-            timeout=request["timeout"]
-        )
-        response_body = await response.get("body").read()
-        request["response"] = json.loads(response_body)["generation"]
-        request["status"] = "success"
+        outputs = llm.generate([request["prompt"]], sampling_params)
 
-    except asyncio.TimeoutError:
-        request["status"] = "failure"
+        generated = outputs[0].outputs[0].text.strip()
+        request["response"] = generated
+        request["status"] = "success"
 
     except Exception as e:
         request["status"] = "failure"
         logging.error("Exception while predicting description", exc_info=e)
-        time.sleep(2)
 
     return request
 
 
-async def process_llm_predict(client, requests):
-    tasks = [llm_predict(client, request) for request in requests]
+async def process_llm_predict(llm, sampling_params, requests):
+    tasks = [llm_predict(llm, sampling_params, request) for request in requests]
     processed_requests = await asyncio.gather(*tasks)
     return processed_requests
 
@@ -51,50 +39,42 @@ class LabelDescriptionHelper(Helper):
     def __init__(self, params):
         super(LabelDescriptionHelper, self).__init__()
         self.params = params
-        self.session = aioboto3.Session()
         self.prompt = self._load_prompt("optimized_prompt")
-        logging.basicConfig(level=logging.INFO)
 
-    async def _load_requests(self):
-        requests = asyncio.Queue()
-        with open(
-                f"{self.params.llm.label_desc.request.request_dir}fold_"
-                f"{self.params.llm.label_desc.request.fold_idx}/requests_{self.params.llm.label_desc.request.request_idx}"
-                f".jsonl", "r") as request_file:
-            for request in request_file:
-                request = json.loads(request)
-                request["retries"] = 0
-                await requests.put(request)
-        logging.info(f"Loaded {requests.qsize()} requests")
-        return requests
+        # 🔥 vLLM model
+        self.llm = LLM(
+            model=self.params.llm.prompt_opt.model,
+            dtype="float16",
+            gpu_memory_utilization=0.45,
+            max_model_len=2048,
+            enforce_eager=True
+        )
+
+        self.sampling_params = SamplingParams(
+            temperature=self.params.llm.prompt_opt.temperature,
+            top_p=self.params.llm.prompt_opt.top_p,
+            max_tokens=self.params.llm.prompt_opt.max_gen_len
+        )
 
     async def _get_batched_requests(self, requests):
         batched_requests = []
-        while not requests.empty() and len(
-                batched_requests) < self.params.llm.label_desc.batch_size:  # Batch size of 100
+        while not requests.empty() and len(batched_requests) < self.params.llm.label_desc.batch_size:
             request = await requests.get()
             batched_requests.append(request)
         return batched_requests
 
     def _format_labels(self, labels):
-        formatted_labels = []
-        for label in labels:
-            formatted_labels.append(self._format_label(label))
-        return '; '.join(formatted_labels)
+        return '; '.join([self._format_label(label) for label in labels])
 
     def _format_label(self, label):
         splited_label = label.split("->")
-        if splited_label[-1] == "NA":
-            return splited_label[0]
-        return label
+        return splited_label[0] if splited_label[-1] == "NA" else label
 
     def _get_candidates(self, samples):
         candidates = {}
         for sample in tqdm(samples, desc="Finding candidates"):
             for label_idx in sample["labels_ids"]:
-                if label_idx not in candidates:
-                    candidates[label_idx] = []
-                candidates[label_idx].append(sample["idx"])
+                candidates.setdefault(label_idx, []).append(sample["idx"])
         return candidates
 
     def _get_labels_map(self, samples):
@@ -106,15 +86,20 @@ class LabelDescriptionHelper(Helper):
 
     def _get_text_label_pairs(self, samples, select_ids):
         text_label_pairs = ""
-        for i, sample_idx in enumerate(select_ids):
-            text_label_pairs += f"    text: {' '.join(samples[sample_idx]['text'].split()[:128])}\n"
-            text_label_pairs += f"    labels: {self._format_labels(samples[sample_idx]['labels'])}\n\n"
+        for sample_idx in select_ids:
+            text = ' '.join(samples[sample_idx]['text'].split()[:128])
+            labels = self._format_labels(samples[sample_idx]['labels'])
+            text_label_pairs += f"    text: {text}\n    labels: {labels}\n\n"
         return text_label_pairs
 
     def _get_label_prompt(self, target_label, samples, select_ids):
+        text_pairs = self._get_text_label_pairs(samples, select_ids)
+
         return self.prompt.format(
             target_label=target_label,
-            text_label_pairs=self._get_text_label_pairs(samples, select_ids)
+            text_label_pairs=text_pairs,
+            positive_texts_label_pairs=text_pairs,
+            negative_texts_label_pairs=""
         )
 
     async def _get_requests(self, fold_idx):
@@ -122,7 +107,7 @@ class LabelDescriptionHelper(Helper):
         logging.info(f"Generating prompts in fold {fold_idx}.")
         requests = asyncio.Queue()
 
-        num_samples = self.params.llm.label_desc.num_samples  # 5
+        num_samples = self.params.llm.label_desc.num_samples
         samples = self._load_split_samples(fold_idx, "train") + self._load_split_samples(fold_idx, "val")
 
         labels_map = self._get_labels_map(samples)
@@ -131,72 +116,59 @@ class LabelDescriptionHelper(Helper):
         for target_label, label_idx in tqdm(labels_map.items(), desc="Describing labels"):
             target_label = self._format_label(target_label)
             samples_ids = candidates[label_idx]
+
             select_ids = samples_ids if len(samples_ids) < num_samples else random.sample(samples_ids, num_samples)
             prompt = self._get_label_prompt(target_label, all_samples, select_ids)
 
             await requests.put(
                 {
                     "prompt": prompt,
-                    "label_idx": label_idx,
-                    "body": {
-                        "prompt": prompt,
-                        "max_gen_len": self.params.llm.prompt_opt.max_gen_len,
-                        "temperature": self.params.llm.prompt_opt.temperature,
-                        "top_p": self.params.llm.prompt_opt.top_p
-                    },
-                    "modelId": self.params.llm.prompt_opt.model,
-                    "timeout": self.params.llm.prompt_opt.timeout
+                    "label_idx": label_idx
                 }
-                #     {
-                #     "recordId": f"label_{label_idx}",
-                #     "modelInput": {
-                #         "prompt": prompt,
-                #         "max_gen_len": self.params.llm.label_desc.max_gen_len,
-                #         "temperature": self.params.llm.label_desc.temperature,
-                #         "top_p": self.params.llm.label_desc.top_p}
-                # }
             )
 
         return requests
 
     async def _process_requests(self, prompts_requests):
         labels_descriptions = {}
-        async with self.session.client('bedrock-runtime') as bedrock_client:
-            with tqdm(total=prompts_requests.qsize(), desc=f"Requesting") as pbar:
-                while not prompts_requests.empty():  # Process the queue in batches until its empty
-                    batched_requests = await self._get_batched_requests(prompts_requests)
-                    processed_requests = await process_llm_predict(
-                        bedrock_client,
-                        batched_requests
-                    )
-                    num_failures = 0
-                    for request in processed_requests:
-                        if request["status"] == "failure":
-                            num_failures += 1
-                            await prompts_requests.put(request)
-                        else:
-                            labels_descriptions[request["label_idx"]] = request["response"]
 
-                    pbar.update(len(batched_requests) - num_failures)
+        with tqdm(total=prompts_requests.qsize(), desc="Requesting") as pbar:
+            while not prompts_requests.empty():
+                batched_requests = await self._get_batched_requests(prompts_requests)
+
+                prompts = [r["prompt"] for r in batched_requests]
+                outputs = self.llm.generate(prompts, self.sampling_params)
+
+                num_failures = 0
+                for request, output in zip(batched_requests, outputs):
+                    try:
+                        request["response"] = output.outputs[0].text.strip()
+                        request["status"] = "success"
+                        labels_descriptions[request["label_idx"]] = request["response"]
+                    except Exception as e:
+                        request["status"] = "failure"
+                        num_failures += 1
+                        await prompts_requests.put(request)
+
+                pbar.update(len(batched_requests) - num_failures)
 
         return labels_descriptions
 
     async def _run(self):
         for fold_idx in self.params.data.folds:
             logging.info(
-                f"Describing labels {self.params.model.name} over {self.params.data.name} (fold {fold_idx}) with fowling "
-                f"self.params\n {OmegaConf.to_yaml(self.params)}\n")
+                f"Describing labels {self.params.model.name} over {self.params.data.name} (fold {fold_idx})\n"
+                f"{OmegaConf.to_yaml(self.params)}\n"
+            )
             requests = await self._get_requests(fold_idx)
             labels_descriptions = await self._process_requests(requests)
             self._checkpoint_label_descriptions(labels_descriptions, fold_idx)
 
     def run(self):
-        asyncio.run(
-            self._run()
-        )
+        asyncio.run(self._run())
 
     def _checkpoint_label_descriptions(self, labels_descriptions, fold_idx):
-        logging.info(
-            f"Checkpointing {len(labels_descriptions)} labels on {self.params.data.dir}/fold_{fold_idx}/labels_descriptions.pkl")
-        with open(f"{self.params.data.dir}fold_{fold_idx}/labels_descriptions.pkl", "wb") as labels_desc_file:
-            pickle.dump(labels_descriptions, labels_desc_file)
+        path = f"{self.params.data.dir}fold_{fold_idx}/labels_descriptions.pkl"
+        logging.info(f"Checkpointing {len(labels_descriptions)} labels at {path}")
+        with open(path, "wb") as f:
+            pickle.dump(labels_descriptions, f)
