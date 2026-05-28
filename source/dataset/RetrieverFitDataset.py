@@ -40,14 +40,37 @@ class RetrieverFitDataset(Dataset):
 
         for idx in tqdm(_load_ids(ids_path), desc="Reading samples"):
             for label_idx, label in zip(samples[idx]["labels_ids"], samples[idx]["labels"]):
+                
+                raw_text = self._get_text_features(samples[idx])
+
+                span, text = self._split_span_text(raw_text)
+
                 self.samples.append({
                     "text_idx": samples[idx]["text_idx"],
-                    "text": self._get_text_features(samples[idx]),
+
+                    "raw_text": raw_text,
+
+                    "span": span,
+
+                    "context": text,
+
                     "label_idx": label_idx,
+
                     "label": f"{label} " + self._get_label_features(label_idx)
                 })
 
         self.samples = self.samples[:round(amount * len(self.samples))]
+        
+    def _split_span_text(self, raw_text):
+        parts = raw_text.split(":", 1)
+
+        if len(parts) != 2:
+            return "", raw_text
+
+        span = parts[0].strip()
+        text = parts[1].strip()
+
+        return span, text
 
     def _get_text_features(self, sample):
         if self.text_features_source == "KWD":
@@ -78,10 +101,23 @@ class RetrieverFitDataset(Dataset):
         # print(f"\n\n{sample['label']}\n\n")
         return {
             "text_idx": sample["text_idx"],
+            
+            "span": torch.tensor(
+                self.tokenizer.encode(
+                    text=sample["span"],
+                    max_length=self.text_max_length // 4,
+                    padding="max_length",
+                    truncation=True
+                )
+            ),
             "text": torch.tensor(
                 self.tokenizer.encode(
-                    text=sample["text"], max_length=self.text_max_length, padding="max_length", truncation=True
-                )),
+                    text=sample["raw_text"],
+                    max_length=self.text_max_length,
+                    padding="max_length",
+                    truncation=True
+                )
+            ),
             "label_idx": sample["label_idx"],
             "label": torch.tensor(
                 self.tokenizer.encode(

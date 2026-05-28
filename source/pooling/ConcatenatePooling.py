@@ -21,4 +21,20 @@ class ConcatenatePooling(LightningModule):
             -1
         )
         #return concatenate_pooling[:, 0]
-        return torch.nn.functional.normalize(concatenate_pooling[:, 0], p=2, dim=1)
+        # return torch.nn.functional.normalize(concatenate_pooling[:, 0], p=2, dim=1)
+        
+        mask = attention_mask.unsqueeze(-1).expand(concatenate_pooling.size()).float()
+
+        masked_embeddings = concatenate_pooling * mask
+
+        summed = torch.sum(masked_embeddings, dim=1)
+
+        summed_mask = torch.clamp(mask.sum(dim=1), min=1e-9)
+
+        mean_pooled = summed / summed_mask
+
+        return torch.nn.functional.normalize(
+            mean_pooled,
+            p=2,
+            dim=1
+        )

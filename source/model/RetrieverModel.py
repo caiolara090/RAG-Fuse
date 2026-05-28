@@ -15,6 +15,17 @@ class RetrieverModel(LightningModule):
 
         # encoders
         self.encoder = instantiate(hparams.encoder)
+        # hidden_size = self.encoder.config.hidden_size
+        
+        ## Cuidado aqui!
+        # hidden_size = self.encoder.encoder.config.hidden_size
+        hidden_size = self.encoder.encoder.config.hidden_size * 4
+
+        self.fusion = torch.nn.Sequential(
+            torch.nn.Linear(hidden_size * 2, hidden_size),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(0.1)
+        )
 
         # loss function
         self.loss = instantiate(hparams.loss)
@@ -22,17 +33,38 @@ class RetrieverModel(LightningModule):
         # metric
         self.mrr = RetrieverMetric(hparams.metric)
 
-    def forward(self, text, label):
-        return self.encoder(text), self.encoder(label)
+    def forward(self, span, text, label):
+
+        span_rpr = self.encoder(span)
+        text_rpr = self.encoder(text)
+
+        fused_text_rpr = torch.cat(
+            [span_rpr, text_rpr],
+            dim=-1
+        )
+
+        fused_text_rpr = self.fusion(fused_text_rpr)
+
+        label_rpr = self.encoder(label)
+
+        return fused_text_rpr, label_rpr
 
     def training_step(self, batch, batch_idx):
-        text_rpr, label_rpr = self(batch["text"], batch["label"])
+        text_rpr, label_rpr = self(
+            batch["span"],
+            batch["text"],
+            batch["label"]
+        )
         train_loss = self.loss(batch["text_idx"], text_rpr, batch["label_idx"], label_rpr)
         self.log('train_LOSS', train_loss, prog_bar=True)
         return train_loss
 
     def validation_step(self, batch, batch_idx):
-        text_rpr, label_rpr = self(batch["text"], batch["label"])
+        text_rpr, label_rpr = self(
+            batch["span"],
+            batch["text"],
+            batch["label"]
+        )
         self.mrr.update(batch["text_idx"], text_rpr, batch["label_idx"], label_rpr)
 
     def on_validation_epoch_end(self):
@@ -40,13 +72,27 @@ class RetrieverModel(LightningModule):
         self.mrr.reset()
 
     def predict_step(self, batch, batch_idx, dataloader_idx=None):
+
         if dataloader_idx == 0:
+
+            span_rpr = self.encoder(batch["span"])
+            text_rpr = self.encoder(batch["text"])
+
+            fused_text_rpr = torch.cat(
+                [span_rpr, text_rpr],
+                dim=-1
+            )
+
+            fused_text_rpr = self.fusion(fused_text_rpr)
+
             return {
                 "text_idx": batch["text_idx"],
-                "text_rpr": self.encoder(batch["text"]),
+                "text_rpr": fused_text_rpr,
                 "modality": "text"
             }
+
         else:
+
             return {
                 "label_idx": batch["label_idx"],
                 "label_rpr": self.encoder(batch["label"]),
