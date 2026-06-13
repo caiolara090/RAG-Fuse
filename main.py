@@ -3,14 +3,15 @@ import os
 import hydra
 from omegaconf import OmegaConf
 
-from source.helper.LabelDescriptionHelper import LabelDescriptionHelper
-from source.helper.PromptOptimizerHelper import PromptOptimizerHelper
+#from source.helper.LabelDescriptionHelper import LabelDescriptionHelper
+#from source.helper.PromptOptimizerHelper import PromptOptimizerHelper
 from source.helper.RankingAggregationHelper import RankingAggregationHelper
 from source.helper.RankingFusionHelper import RankingFusionHelper
 from source.helper.SparseRetrieverHelper import SparseRetrieverHelper
 from source.helper.retriever.RetrieverEvalHelper import RetrieverEvalHelper
 from source.helper.retriever.RetrieverFitHelper import RetrieverFitHelper
 from source.helper.retriever.RetrieverPredictHelper import RetrieverPredictHelper
+from source.helper.RerankerHelper import RerankerHelper
 
 
 def sparse_retrieve(params):
@@ -49,6 +50,8 @@ def prompt_opt(params):
 def label_desc(params):
     LabelDescriptionHelper(params).run()
 
+def rerank(params):
+    RerankerHelper(params).run()
 
 @hydra.main(config_path="setting", config_name="setting.yaml", version_base=None)
 def perform_tasks(params):
@@ -78,6 +81,9 @@ def perform_tasks(params):
 
     if "label_desc" in params.tasks:
         label_desc(params)
+
+    if "rerank" in params.tasks:
+        rerank(params)
 
 
 if __name__ == '__main__':

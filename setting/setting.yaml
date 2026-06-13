@@ -93,6 +93,10 @@ aggregation:
     target:
       name: LLM_${model.name}
 
+rerank:
+  top_k: 5
+  batch_size: 32
+
 result:
   dir: resource/result/
 
