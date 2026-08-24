@@ -45,7 +45,7 @@ class LabelDescriptionHelper(Helper):
         self.llm = LLM(
             model=self.params.llm.prompt_opt.model,
             dtype="float16",
-            gpu_memory_utilization=0.45,
+            gpu_memory_utilization=0.9,
             max_model_len=2048,
             enforce_eager=True
         )

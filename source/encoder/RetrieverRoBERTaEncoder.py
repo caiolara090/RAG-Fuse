@@ -1,6 +1,7 @@
 import torch
 from pytorch_lightning import LightningModule
-from transformers import RobertaModel
+from transformers import AutoTokenizer, RobertaModel
+from setting.special_tokens import SPECIAL_TOKENS
 
 
 class RetrieverRoBERTaEncoder(LightningModule):
@@ -8,11 +9,22 @@ class RetrieverRoBERTaEncoder(LightningModule):
 
     def __init__(self, architecture, output_attentions, output_hidden_states, pooling):
         super(RetrieverRoBERTaEncoder, self).__init__()
+
+        # tokenizer = AutoTokenizer.from_pretrained(architecture)
+
+        # tokenizer.add_special_tokens({
+        #     "additional_special_tokens": SPECIAL_TOKENS
+        # })
+
         self.encoder = RobertaModel.from_pretrained(
             architecture,
             output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states
+            output_hidden_states=output_hidden_states,
+            use_safetensors=False
         )
+
+        # self.encoder.resize_token_embeddings(len(tokenizer))
+
         self.pooling = pooling
 
     def forward(self, feature):

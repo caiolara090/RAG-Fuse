@@ -64,8 +64,9 @@ llm:
     temperature: 0.5
     top_p: 0.5
     # model: meta.llama3-1-8b-instruct-v1:0 # arn:aws:bedrock:us-west-2:179395270822:inference-profile/us.meta.llama4-scout-17b-instruct-v1:0 #meta.llama4-scout-17b-instruct-v1:0 #meta.llama3-1-8b-instruct-v1:0
-    # model: mistralai/Mistral-7B-Instruct-v0.1
-    model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+    model: mistralai/Mistral-7B-Instruct-v0.1
+    # model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+
   label_desc:
     batch_size: 32
     max_gen_len: 256

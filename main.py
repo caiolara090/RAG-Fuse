@@ -1,5 +1,4 @@
 import os
-
 import hydra
 from omegaconf import OmegaConf
 
@@ -11,6 +10,36 @@ from source.helper.SparseRetrieverHelper import SparseRetrieverHelper
 from source.helper.retriever.RetrieverEvalHelper import RetrieverEvalHelper
 from source.helper.retriever.RetrieverFitHelper import RetrieverFitHelper
 from source.helper.retriever.RetrieverPredictHelper import RetrieverPredictHelper
+
+
+def predict_from_file_native(params, file_path: str):
+    """Executa a predição usando exclusivamente os Helpers nativos do RAG-Fuse."""
+    if not os.path.exists(file_path):
+        print(f"\n[ERRO] O arquivo '{file_path}' não foi encontrado.")
+        return
+
+    print(f"\n=== [RAG-Fuse Native Pipeline] Processando '{file_path}' ===")
+
+    # 1. Ajusta o ambiente e carrega a configuração dos rótulos
+    print("1. Gerando descrições dos rótulos (label_desc)...")
+    LabelDescriptionHelper(params).run()
+
+    # 2. Executa a recuperação esparsa (BM25) nativa
+    print("2. Executando recuperação esparsa (BM25)...")
+    SparseRetrieverHelper(params).run()
+
+    # 3. Executa a predição densa com PyTorch Lightning / RetrieverModel
+    print("3. Executando predição densa (Retriever)...")
+    if params.model.type == "retriever":
+        predict_helper = RetrieverPredictHelper(params)
+        predict_helper.perform_predict()
+
+    # 4. Executa a fusão (RRF) nativa
+    print("4. Aplicando a fusão de rankings (Ranking Fusion)...")
+    RankingFusionHelper(params).run()
+
+    print("\n=== Pipeline nativo do RAG-Fuse concluído! ===")
+    print(f"Verifique os resultados gerados na pasta do experimento/resource.")
 
 
 def sparse_retrieve(params):
@@ -54,6 +83,11 @@ def label_desc(params):
 def perform_tasks(params):
     os.chdir(hydra.utils.get_original_cwd())
     OmegaConf.resolve(params)
+
+    # Executa a esteira nativa caso passe o arquivo
+    if hasattr(params, "file_path") and params.file_path:
+        predict_from_file_native(params, file_path=params.file_path)
+        return
 
     if "sparse_retrieve" in params.tasks:
         sparse_retrieve(params)

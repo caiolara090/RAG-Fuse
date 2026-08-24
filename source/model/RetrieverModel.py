@@ -54,7 +54,9 @@ class RetrieverModel(LightningModule):
             }
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.encoder.parameters(), lr=self.hparams.lr, betas=(0.9, 0.999),
+        
+        # optimizer = torch.optim.AdamW(self.encoder.parameters(), lr=self.hparams.lr, betas=(0.9, 0.999),
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.hparams.lr, betas=(0.9, 0.999),
                                       eps=1e-08, weight_decay=self.hparams.weight_decay, amsgrad=True)
 
         scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0,

@@ -11,6 +11,7 @@ from pytorch_lightning.callbacks import LearningRateMonitor, EarlyStopping, Mode
     TQDMProgressBar
 from ranx import evaluate, Qrels, Run, fuse
 from transformers import AutoTokenizer
+from setting.special_tokens import SPECIAL_TOKENS
 
 
 class Helper:
@@ -18,9 +19,15 @@ class Helper:
         self.params = params
 
     def get_tokenizer(self):
-        return AutoTokenizer.from_pretrained(
+        tokenizer = AutoTokenizer.from_pretrained(
             self.params.model.tokenizer.architecture
         )
+
+        # tokenizer.add_special_tokens({
+        #     "additional_special_tokens": SPECIAL_TOKENS
+        # })
+
+        return tokenizer
 
     def get_logger(self, fold_idx):
         return loggers.TensorBoardLogger(

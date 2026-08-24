@@ -53,6 +53,7 @@ class RetrieverFitDataset(Dataset):
         if self.text_features_source == "KWD":
             return " ".join([kwd[0] for kwd in sample["keywords"]])
         elif self.text_features_source == "TXT":
+            # return sample["text"].replace(":", "[SEP]")
             return sample["text"]
         else:
             raise Exception("Source features must be TXT or KWD")
